@@ -29,7 +29,7 @@ fn process_image(im: Mat, width: i32, height: i32) -> Result<Mat> {
     Ok(resized)
 }
 
-/// 返回一张拼图
+/// 返回一张拼图，格式为 jpg
 pub fn merge(image_bytes: &[Vec<u8>]) -> Result<Vec<u8>> {
     if image_bytes.is_empty() {
         return Err(Error::new(1, "no images".to_string()));
@@ -152,9 +152,7 @@ pub fn merge(image_bytes: &[Vec<u8>]) -> Result<Vec<u8>> {
         let mut roi = Mat::roi(&canvas, Rect::new(x, y, dx, dy))?;
         debug!("image copy: src = {:?}, roi = {:?}", im, roi);
 
-        let mask = Mat::ones(im.rows(), im.cols(), opencv::core::CV_8U)?;
-        let mask = mask.to_mat()?;
-        opencv::core::copy_to(&im, &mut roi, &mask)?;
+        im.copy_to(&mut roi)?;
     }
 
     let mut buf = Vector::new();

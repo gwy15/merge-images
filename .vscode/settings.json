@@ -3,6 +3,7 @@
         "imdecode",
         "imencode",
         "imgcodecs",
+        "imgproc",
         "IMREAD",
         "opencv"
     ]
