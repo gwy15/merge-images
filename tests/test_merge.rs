@@ -90,3 +90,54 @@ fn test_merge_6() {
     let mut output = File::create("output-6.jpg").unwrap();
     output.write_all(&out_im).unwrap();
 }
+
+#[test]
+fn test_merge_7() {
+    pretty_env_logger::try_init().ok();
+    let f1 = data("1.png");
+    let f2 = data("2.png");
+    let f3 = data("3.png");
+    let f4 = data("4.jpg");
+    let f5 = data("5.png");
+    let f6 = data("6.png");
+    let f7 = data("7.png");
+    let out_im = merge(&[f1, f2, f3, f4, f5, f6, f7]).unwrap();
+
+    let mut output = File::create("output-7.jpg").unwrap();
+    output.write_all(&out_im).unwrap();
+}
+
+#[test]
+fn test_merge_8() {
+    pretty_env_logger::try_init().ok();
+    let f1 = data("1.png");
+    let f2 = data("2.png");
+    let f3 = data("3.png");
+    let f4 = data("4.jpg");
+    let f5 = data("5.png");
+    let f6 = data("6.png");
+    let f7 = data("7.png");
+    let f8 = data("8.jpg");
+    let out_im = merge(&[f1, f2, f3, f4, f5, f6, f7, f8]).unwrap();
+
+    let mut output = File::create("output-8.jpg").unwrap();
+    output.write_all(&out_im).unwrap();
+}
+
+#[test]
+fn test_merge_9() {
+    pretty_env_logger::try_init().ok();
+    let f1 = data("1.png");
+    let f2 = data("2.png");
+    let f3 = data("3.png");
+    let f4 = data("4.jpg");
+    let f5 = data("5.png");
+    let f6 = data("6.png");
+    let f7 = data("7.png");
+    let f8 = data("8.jpg");
+    let f9 = data("9.jpg");
+    let out_im = merge(&[f1, f2, f3, f4, f5, f6, f7, f8, f9]).unwrap();
+
+    let mut output = File::create("output-9.jpg").unwrap();
+    output.write_all(&out_im).unwrap();
+}
