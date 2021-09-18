@@ -1,7 +1,10 @@
 use log::*;
-use opencv::core::{Rect, Vector};
-use opencv::prelude::*;
-use opencv::{Error, Result};
+use opencv::{
+    core::{self as cv_core, Rect, Vector},
+    imgcodecs, imgproc,
+    prelude::*,
+    Error, Result,
+};
 
 fn process_image(im: Mat, width: i32, height: i32) -> Result<Mat> {
     // select from center
@@ -17,13 +20,13 @@ fn process_image(im: Mat, width: i32, height: i32) -> Result<Mat> {
     let im = Mat::roi(&im, Rect::new(x, y, min_size, min_size))?;
 
     let mut resized = Mat::default();
-    opencv::imgproc::resize(
+    imgproc::resize(
         &im,
         &mut resized,
-        opencv::core::Size::new(width, height),
+        cv_core::Size::new(width, height),
         0.,
         0.,
-        opencv::imgproc::INTER_LINEAR,
+        imgproc::INTER_LINEAR,
     )?;
     debug!("image resized");
     Ok(resized)
@@ -47,7 +50,7 @@ pub fn merge(image_bytes: &[Vec<u8>]) -> Result<Vec<u8>> {
     let mut cv_images = vec![];
     for bytes in image_bytes {
         let src = Mat::from_slice(bytes)?;
-        let im = opencv::imgcodecs::imdecode(&src, opencv::imgcodecs::IMREAD_COLOR)?;
+        let im = imgcodecs::imdecode(&src, imgcodecs::IMREAD_COLOR)?;
 
         cv_images.push(im);
     }
@@ -140,7 +143,7 @@ pub fn merge(image_bytes: &[Vec<u8>]) -> Result<Vec<u8>> {
         ),
         _ => unreachable!(),
     };
-    let canvas = Mat::zeros(height, width, opencv::core::CV_8UC3)?.to_mat()?;
+    let canvas = Mat::zeros(height, width, cv_core::CV_8UC3)?.to_mat()?;
     debug!("canvas = {:?}", canvas);
     // copy
     for (im, pos) in cv_images.into_iter().zip(poses) {
@@ -157,7 +160,7 @@ pub fn merge(image_bytes: &[Vec<u8>]) -> Result<Vec<u8>> {
 
     let mut buf = Vector::new();
     let flags = Vector::new();
-    opencv::imgcodecs::imencode(".jpg", &canvas, &mut buf, &flags)?;
+    imgcodecs::imencode(".jpg", &canvas, &mut buf, &flags)?;
 
     Ok(buf.to_vec())
 }
