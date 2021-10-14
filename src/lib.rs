@@ -10,6 +10,7 @@ const PAD: i32 = 10;
 
 /// 把图片处理成 (width, height) 大小
 fn process_image(im: Mat, width: i32, height: i32) -> Result<Mat> {
+    debug!("processing image into size ({}, {})", width, height);
     // select from center
     let min_size = im.rows().min(im.cols());
     let (x, y) = if min_size == im.rows() {
@@ -23,14 +24,23 @@ fn process_image(im: Mat, width: i32, height: i32) -> Result<Mat> {
     let im = Mat::roi(&im, Rect::new(x, y, min_size, min_size))?;
 
     let mut resized = Mat::default();
-    imgproc::resize(
+
+    let resize_result = imgproc::resize(
         &im,
         &mut resized,
         cv_core::Size::new(width, height),
         0.,
         0.,
         imgproc::INTER_LINEAR,
-    )?;
+    );
+    match resize_result {
+        Ok(_) => {}
+        Err(e) => {
+            warn!("failed to resize image: {}", e);
+            return Err(e);
+        }
+    }
+
     debug!("image resized");
     Ok(resized)
 }
@@ -214,9 +224,16 @@ pub fn merge<T: AsRef<[u8]>>(image_bytes: &[T]) -> Result<Vec<u8>> {
     )?;
     debug!("canvas = {:?}", canvas);
     // copy
-    for (im, pos) in cv_images.into_iter().zip(poses) {
+    for (idx, (im, pos)) in cv_images.into_iter().zip(poses).enumerate() {
         debug!("pos = {:?}", pos);
-        let im = process_image(im, pos.width, pos.height)?;
+        let im = match process_image(im, pos.width, pos.height) {
+            Ok(im) => im,
+            Err(e) => {
+                info!("failed to process the {}-th image: {}. continue", idx, e);
+                debug!("cause: {:?}", e);
+                continue;
+            }
+        };
 
         let mut roi = Mat::roi(&canvas, pos)?;
         debug!("image copy: src = {:?}, roi = {:?}", im, roi);
