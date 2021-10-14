@@ -13,7 +13,8 @@ fn data(name: &str) -> Vec<u8> {
 #[test]
 fn test_merge_0() {
     pretty_env_logger::try_init().ok();
-    assert!(merge(&[]).is_err());
+    let empty: &[&[u8]] = &[];
+    assert!(merge(empty).is_err());
 }
 
 #[test]

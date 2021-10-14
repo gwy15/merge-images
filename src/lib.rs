@@ -8,6 +8,7 @@ use opencv::{
 
 const PAD: i32 = 10;
 
+/// 把图片处理成 (width, height) 大小
 fn process_image(im: Mat, width: i32, height: i32) -> Result<Mat> {
     // select from center
     let min_size = im.rows().min(im.cols());
@@ -34,39 +35,67 @@ fn process_image(im: Mat, width: i32, height: i32) -> Result<Mat> {
     Ok(resized)
 }
 
-/// 返回一张拼图，格式为 jpg
-pub fn merge(image_bytes: &[Vec<u8>]) -> Result<Vec<u8>> {
-    if image_bytes.is_empty() {
-        return Err(Error::new(1, "no images".to_string()));
-    }
-    if image_bytes.len() > 9 {
-        return Err(Error::new(
-            1,
-            format!("too many images: {}", image_bytes.len()),
-        ));
-    }
-    if image_bytes.len() == 1 {
-        return Ok(image_bytes[0].clone());
+/// 生成大于 9 图时的略缩图位置
+fn batch_image_poses(n: usize) -> ((i32, i32), Vec<Rect>) {
+    debug_assert!(n > 9);
+    let (columns, per_size) = match n {
+        0..=9 => (3, 800),
+        10..=16 => (4, 500),
+        17..=25 => (5, 400),
+        26..=36 => (6, 350),
+        37..=49 => (7, 300),
+        50..=64 => (8, 300),
+        65..=81 => (9, 300),
+        _ => (10, 240),
+    };
+    let rows = (n as i32 + columns - 1) / columns;
+
+    let width = (columns * per_size) + PAD * (columns - 1);
+    let height = (rows * per_size) + PAD * (rows - 1);
+
+    let mut rects = vec![];
+    for i in 0..n as i32 {
+        let x = (i % columns) * (per_size + PAD);
+        let row = i / columns;
+        let y = row * (per_size + PAD);
+        rects.push(Rect::new(x, y, per_size, per_size));
     }
 
-    let mut cv_images = vec![];
-    for bytes in image_bytes {
-        let src = Mat::from_slice(bytes)?;
-        let im = imgcodecs::imdecode(&src, imgcodecs::IMREAD_COLOR)?;
+    debug!("width = {}, height = {}", width, height);
+    trace!("rects = {:?}", rects);
+    ((width, height), rects)
+}
 
-        cv_images.push(im);
+/// 生成 2~9 图时的略缩图位置
+/// return ((width, height), poses)
+fn image_poses(n: usize) -> ((i32, i32), Vec<Rect>) {
+    debug_assert!(n >= 1);
+
+    macro_rules! rects {
+        ($(
+            ($x:expr, $y:expr, $width:expr, $height:expr),
+        )*) => {
+            vec![
+                $(
+                    Rect::new($x, $y, $width, $height),
+                )*
+            ]
+        };
     }
 
-    // 宽，高
-    let ((width, height), poses) = match image_bytes.len() {
+    match n {
+        1 => {
+            error!("生成略缩图只有 n=1");
+            ((1800, 1800), rects![(0, 0, 1800, 1800),])
+        }
         2 => (
             (1800 + PAD, 900),
-            vec![(0, 0, 900, 900), (900 + PAD, 0, 900, 900)],
+            rects![(0, 0, 900, 900), (900 + PAD, 0, 900, 900),],
         ),
         // 1 + 2
         3 => (
             (1800 + PAD, 2700 + PAD),
-            vec![
+            rects![
                 (0, 0, 1800, 1800),
                 (0, 1800 + PAD, 900, 900),
                 (900 + PAD, 1800 + PAD, 900, 900),
@@ -74,7 +103,7 @@ pub fn merge(image_bytes: &[Vec<u8>]) -> Result<Vec<u8>> {
         ),
         4 => (
             (1800 + PAD, 1800 + PAD),
-            vec![
+            rects![
                 (0, 0, 900, 900),
                 (0, 900 + PAD, 900, 900),
                 (900 + PAD, 0, 900, 900),
@@ -84,7 +113,7 @@ pub fn merge(image_bytes: &[Vec<u8>]) -> Result<Vec<u8>> {
         // 1800x600 + 1800x900
         5 => (
             (1800 + 2 * PAD, 1500 + PAD),
-            vec![
+            rects![
                 (0, 0, 900, 900),
                 (900 + PAD, 0, 900, 900),
                 (0, 900 + PAD, 600, 600),
@@ -95,7 +124,7 @@ pub fn merge(image_bytes: &[Vec<u8>]) -> Result<Vec<u8>> {
         // 3x2
         6 => (
             (1800 + 2 * PAD, 1200 + PAD),
-            vec![
+            rects![
                 (0, 0, 600, 600),
                 (600 + PAD, 0, 600, 600),
                 (1200 + 2 * PAD, 0, 600, 600),
@@ -107,7 +136,7 @@ pub fn merge(image_bytes: &[Vec<u8>]) -> Result<Vec<u8>> {
         // 2 + 2 + 3
         7 => (
             (1800 + 2 * PAD, 2400 + 2 * PAD),
-            vec![
+            rects![
                 (0, 0, 900, 900),
                 (900 + PAD, 0, 900, 900),
                 (0, 900 + PAD, 900, 900),
@@ -120,7 +149,7 @@ pub fn merge(image_bytes: &[Vec<u8>]) -> Result<Vec<u8>> {
         // 2 + 3 + 3
         8 => (
             (1800 + 2 * PAD, 2100 + 2 * PAD),
-            vec![
+            rects![
                 (0, 0, 900, 900),
                 (900 + PAD, 0, 900, 900),
                 (0, 900 + PAD, 600, 600),
@@ -134,7 +163,7 @@ pub fn merge(image_bytes: &[Vec<u8>]) -> Result<Vec<u8>> {
         // 九宫图
         9 => (
             (1800 + 2 * PAD, 1800 + 2 * PAD),
-            vec![
+            rects![
                 (0, 0, 600, 600),
                 (600 + PAD, 0, 600, 600),
                 (1200 + 2 * PAD, 0, 600, 600),
@@ -146,8 +175,29 @@ pub fn merge(image_bytes: &[Vec<u8>]) -> Result<Vec<u8>> {
                 (1200 + 2 * PAD, 1200 + 2 * PAD, 600, 600),
             ],
         ),
-        _ => unreachable!(),
-    };
+        n => batch_image_poses(n),
+    }
+}
+
+/// 返回一张拼图，格式为 jpg
+pub fn merge<T: AsRef<[u8]>>(image_bytes: &[T]) -> Result<Vec<u8>> {
+    if image_bytes.is_empty() {
+        return Err(Error::new(1, "no images".to_string()));
+    }
+    if image_bytes.len() == 1 {
+        return Ok(image_bytes[0].as_ref().to_vec());
+    }
+
+    let mut cv_images = vec![];
+    for bytes in image_bytes {
+        let src = Mat::from_slice(bytes.as_ref())?;
+        let im = imgcodecs::imdecode(&src, imgcodecs::IMREAD_COLOR)?;
+
+        cv_images.push(im);
+    }
+
+    // 宽，高
+    let ((width, height), poses) = image_poses(image_bytes.len());
     let canvas = Mat::new_rows_cols_with_default(
         height,
         width,
@@ -158,11 +208,9 @@ pub fn merge(image_bytes: &[Vec<u8>]) -> Result<Vec<u8>> {
     // copy
     for (im, pos) in cv_images.into_iter().zip(poses) {
         debug!("pos = {:?}", pos);
-        let (x, y, dx, dy) = pos;
+        let im = process_image(im, pos.width, pos.height)?;
 
-        let im = process_image(im, dx, dy)?;
-
-        let mut roi = Mat::roi(&canvas, Rect::new(x, y, dx, dy))?;
+        let mut roi = Mat::roi(&canvas, pos)?;
         debug!("image copy: src = {:?}, roi = {:?}", im, roi);
 
         im.copy_to(&mut roi)?;

@@ -5,6 +5,7 @@
         "imgcodecs",
         "imgproc",
         "IMREAD",
-        "opencv"
+        "opencv",
+        "rects"
     ]
 }
