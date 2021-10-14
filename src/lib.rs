@@ -189,9 +189,12 @@ pub fn merge<T: AsRef<[u8]>>(image_bytes: &[T]) -> Result<Vec<u8>> {
     }
 
     let mut cv_images = vec![];
-    for bytes in image_bytes {
+    for (idx, bytes) in image_bytes.iter().enumerate() {
         let src = Mat::from_slice(bytes.as_ref())?;
-        let im = imgcodecs::imdecode(&src, imgcodecs::IMREAD_COLOR)?;
+        let im = imgcodecs::imdecode(&src, imgcodecs::IMREAD_COLOR).map_err(|e| {
+            info!("error imdecode the {}-th bytes (0 based index)", idx);
+            e
+        })?;
 
         cv_images.push(im);
     }
