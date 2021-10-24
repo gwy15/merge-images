@@ -189,6 +189,61 @@ fn image_poses(n: usize) -> ((i32, i32), Vec<Rect>) {
     }
 }
 
+fn imdecode_wrapped(bytes: &[u8]) -> Result<Mat> {
+    let src = Mat::from_slice(bytes).map_err(|e| {
+        info!("Mat::from_slice error: {}", e);
+        debug!("{:?}", e);
+        e
+    })?;
+    let im_decode_result = match imagesize::blob_size(bytes.as_ref()) {
+        Ok(imagesize::ImageSize { width, height }) => {
+            let flag = match width.max(height) {
+                size if size > 8000 => {
+                    info!("size too big: ({}x{}), shrink to 1/8", width, height);
+                    imgcodecs::IMREAD_REDUCED_COLOR_8
+                }
+                size if size > 3000 => {
+                    info!("size too big: ({}x{}), shrink to 1/4", width, height);
+                    imgcodecs::IMREAD_REDUCED_COLOR_4
+                }
+                _ => imgcodecs::IMREAD_COLOR,
+            };
+            imgcodecs::imdecode(&src, flag)
+        }
+        Err(e) => {
+            warn!("cannot get image size in advance: {:?}", e);
+            imgcodecs::imdecode(&src, imgcodecs::IMREAD_COLOR)
+        }
+    };
+    let im = im_decode_result?;
+
+    let (width, height) = (im.cols(), im.rows());
+    let im = match width.max(height) {
+        #[cfg(debug_assertions)]
+        size if size > 8000 => {
+            panic!("表现不一致：大小还是超过 8000");
+        }
+        #[cfg(not(debug_assertions))]
+        size if size > 8000 => {
+            error!("表现不一致：大小还是超过 8000；继续缩放为 1/8");
+            let mut output = Mat::default();
+            imgproc::resize(
+                &im,
+                &mut output,
+                cv_core::Size::new(0, 0),
+                1. / 8.,
+                1. / 8.,
+                imgproc::INTER_LINEAR,
+            )?;
+            std::mem::drop(im);
+            output
+        }
+        _ => im,
+    };
+
+    Ok(im)
+}
+
 /// 返回一张拼图，格式为 jpg
 pub fn merge<T: AsRef<[u8]>>(image_bytes: &[T]) -> Result<Vec<u8>> {
     debug!("merging {} images", image_bytes.len());
@@ -199,67 +254,9 @@ pub fn merge<T: AsRef<[u8]>>(image_bytes: &[T]) -> Result<Vec<u8>> {
         return Ok(image_bytes[0].as_ref().to_vec());
     }
 
-    let mut cv_images = vec![];
-    for (idx, bytes) in image_bytes.iter().enumerate() {
-        let src = Mat::from_slice(bytes.as_ref()).map_err(|e| {
-            info!("Mat::from_slice error: {}", e);
-            debug!("{:?}", e);
-            e
-        })?;
-        let im_decode_result = match imagesize::blob_size(bytes.as_ref()) {
-            Ok(imagesize::ImageSize { width, height }) => {
-                let flag = match width.max(height) {
-                    size if size > 8000 => {
-                        info!("size too big: ({}x{}), shrink to 1/8", width, height);
-                        imgcodecs::IMREAD_REDUCED_COLOR_8
-                    }
-                    size if size > 3000 => {
-                        info!("size too big: ({}x{}), shrink to 1/4", width, height);
-                        imgcodecs::IMREAD_REDUCED_COLOR_4
-                    }
-                    _ => imgcodecs::IMREAD_COLOR,
-                };
-                imgcodecs::imdecode(&src, flag)
-            }
-            Err(e) => {
-                warn!("cannot get image size in advance: {:?}", e);
-                imgcodecs::imdecode(&src, imgcodecs::IMREAD_COLOR)
-            }
-        };
-        let im = im_decode_result.map_err(|e| {
-            info!("error imdecode the {}-th bytes (0 based index): {}", idx, e);
-            debug!("{:?}", e);
-            e
-        })?;
-        info!("image size: {:?}", im.size()?);
-
-        let (width, height) = (im.cols(), im.rows());
-        let im = match width.max(height) {
-            size if size > 8000 => {
-                error!("表现不一致：大小还是超过 8000；继续缩放为 1/8");
-                #[cfg(debug_assertions)]
-                panic!("表现不一致：大小还是超过 8000");
-
-                let mut output = Mat::default();
-                imgproc::resize(
-                    &im,
-                    &mut output,
-                    cv_core::Size::new(0, 0),
-                    1. / 8.,
-                    1. / 8.,
-                    imgproc::INTER_LINEAR,
-                )?;
-                std::mem::drop(im);
-                output
-            }
-            _ => im,
-        };
-
-        cv_images.push(im);
-    }
-
-    // 宽，高
+    // 生成画布
     let ((width, height), poses) = image_poses(image_bytes.len());
+    debug!("canvas size: {} x {}", width, height);
     let canvas = Mat::new_rows_cols_with_default(
         height,
         width,
@@ -267,8 +264,15 @@ pub fn merge<T: AsRef<[u8]>>(image_bytes: &[T]) -> Result<Vec<u8>> {
         cv_core::Scalar::all(255.),
     )?;
     debug!("canvas = {:?}", canvas);
-    // copy
-    for (idx, (im, pos)) in cv_images.into_iter().zip(poses).enumerate() {
+
+    for (idx, (bytes, pos)) in image_bytes.iter().zip(poses).enumerate() {
+        let im = imdecode_wrapped(bytes.as_ref()).map_err(|e| {
+            info!("error imdecode the {}-th bytes (0 based index): {}", idx, e);
+            debug!("{:?}", e);
+            e
+        })?;
+        info!("image size: {:?}", im.size()?);
+
         debug!("pos = {:?}", pos);
         let im = match process_image(im, pos.width, pos.height) {
             Ok(im) => im,
@@ -294,8 +298,23 @@ pub fn merge<T: AsRef<[u8]>>(image_bytes: &[T]) -> Result<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use std::io::Read;
+
+    const F: &str = "./test-data/e09ca4a57584181ce573e45079b524ff3859b9fb.jpg";
+
     #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
+    fn test_imdecode_wrapped() {
+        let im = opencv::imgcodecs::imread(F, opencv::imgcodecs::IMREAD_REDUCED_COLOR_8).unwrap();
+        assert_eq!(im.cols(), 1440);
+        assert_eq!(im.rows(), 2048);
+
+        let mut f = std::fs::File::open(F).unwrap();
+        let mut buf = vec![];
+        f.read_to_end(&mut buf).unwrap();
+
+        let im = imdecode_wrapped(&buf).unwrap();
+        assert_eq!(im.cols(), 1440);
+        assert_eq!(im.rows(), 2048);
     }
 }
