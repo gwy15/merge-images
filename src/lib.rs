@@ -236,8 +236,10 @@ pub fn merge<T: AsRef<[u8]>>(image_bytes: &[T]) -> Result<Vec<u8>> {
         let (width, height) = (im.cols(), im.rows());
         let im = match width.max(height) {
             size if size > 8000 => {
-                error!("表现不一致：大小还是超过 8000");
-                info!("继续缩放为 1/8");
+                error!("表现不一致：大小还是超过 8000；继续缩放为 1/8");
+                #[cfg(debug_assertions)]
+                panic!("表现不一致：大小还是超过 8000");
+
                 let mut output = Mat::default();
                 imgproc::resize(
                     &im,
