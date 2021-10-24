@@ -7,6 +7,7 @@ edition = "2018"
 
 [dependencies]
 opencv = "0.54.0"
+imagesize = "0.9.0"
 log = "0.4.14"
 
 [dev-dependencies]

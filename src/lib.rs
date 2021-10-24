@@ -191,6 +191,7 @@ fn image_poses(n: usize) -> ((i32, i32), Vec<Rect>) {
 
 /// 返回一张拼图，格式为 jpg
 pub fn merge<T: AsRef<[u8]>>(image_bytes: &[T]) -> Result<Vec<u8>> {
+    debug!("merging {} images", image_bytes.len());
     if image_bytes.is_empty() {
         return Err(Error::new(1, "no images".to_string()));
     }
@@ -205,11 +206,32 @@ pub fn merge<T: AsRef<[u8]>>(image_bytes: &[T]) -> Result<Vec<u8>> {
             debug!("{:?}", e);
             e
         })?;
-        let im = imgcodecs::imdecode(&src, imgcodecs::IMREAD_COLOR).map_err(|e| {
+        let im_decode_result = match imagesize::blob_size(bytes.as_ref()) {
+            Ok(imagesize::ImageSize { width, height }) => {
+                let flag = match width.max(height) {
+                    size if size > 8000 => {
+                        info!("size too big: ({}x{}), shrink to 1/8", width, height);
+                        imgcodecs::IMREAD_REDUCED_COLOR_8
+                    }
+                    size if size > 3000 => {
+                        info!("size too big: ({}x{}), shrink to 1/4", width, height);
+                        imgcodecs::IMREAD_REDUCED_COLOR_4
+                    }
+                    _ => imgcodecs::IMREAD_COLOR,
+                };
+                imgcodecs::imdecode(&src, flag)
+            }
+            Err(e) => {
+                warn!("cannot get image size in advance: {:?}", e);
+                imgcodecs::imdecode(&src, imgcodecs::IMREAD_COLOR)
+            }
+        };
+        let im = im_decode_result.map_err(|e| {
             info!("error imdecode the {}-th bytes (0 based index): {}", idx, e);
             debug!("{:?}", e);
             e
         })?;
+        info!("image size: {:?}", im.size()?);
 
         cv_images.push(im);
     }
