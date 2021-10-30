@@ -1,19 +1,27 @@
 use crate::prelude::*;
 
 /// 把图片处理成 (width, height) 大小
-pub fn process_image(im: Mat, width: i32, height: i32) -> Result<Mat> {
-    debug!("processing image into size ({}, {})", width, height);
-    // select from center
-    let min_size = im.rows().min(im.cols());
-    let (x, y) = if min_size == im.rows() {
-        // 高度短，横向裁剪
-        let x = (im.cols() - min_size) / 2;
-        (x, 0)
+fn process_image(im: Mat, square: bool, width: i32, height: i32) -> Result<Mat> {
+    debug!(
+        "processing image into size ({}, {}), square = {}",
+        width, height, square
+    );
+    let roi = if square {
+        // 从中间选择正方形区域
+        let min_size = im.rows().min(im.cols());
+        if min_size == im.rows() {
+            // 高度短，横向裁剪
+            let x = (im.cols() - min_size) / 2;
+            Rect::new(x, 0, min_size, min_size)
+        } else {
+            let y = (im.rows() - min_size) / 2;
+            Rect::new(0, y, min_size, min_size)
+        }
     } else {
-        let y = (im.rows() - min_size) / 2;
-        (0, y)
+        Rect::new(0, 0, im.cols(), im.rows())
     };
-    let im = Mat::roi(&im, Rect::new(x, y, min_size, min_size))?;
+
+    let im = Mat::roi(&im, roi)?;
 
     let mut resized = Mat::default();
 
@@ -91,6 +99,61 @@ pub fn imdecode_wrapped(bytes: &[u8]) -> Result<Mat> {
     };
 
     Ok(im)
+}
+
+pub(crate) fn merge_<T: AsRef<[u8]>>(
+    image_bytes: &[T],
+    gen_poses: impl Fn(&[T]) -> Result<((i32, i32), Vec<Rect>)>,
+    square: bool,
+) -> Result<Vec<u8>> {
+    debug!("merging {} images", image_bytes.len());
+    if image_bytes.is_empty() {
+        return Err(Error::new(1, "no images".to_string()));
+    }
+    if image_bytes.len() == 1 {
+        return Ok(image_bytes[0].as_ref().to_vec());
+    }
+
+    // 生成画布
+    let ((width, height), poses) = gen_poses(image_bytes)?;
+    debug!("canvas size: {} x {}", width, height);
+    let canvas = Mat::new_rows_cols_with_default(
+        height,
+        width,
+        cv_core::CV_8UC3,
+        cv_core::Scalar::all(255.),
+    )?;
+    debug!("canvas = {:?}", canvas);
+
+    for (idx, (bytes, pos)) in image_bytes.iter().zip(poses).enumerate() {
+        let im = imdecode_wrapped(bytes.as_ref()).map_err(|e| {
+            info!("error imdecode the {}-th bytes (0 based index): {}", idx, e);
+            debug!("{:?}", e);
+            e
+        })?;
+        info!("image size: {:?}", im.size()?);
+
+        debug!("pos = {:?}", pos);
+        let im = match process_image(im, square, pos.width, pos.height) {
+            Ok(im) => im,
+            Err(e) => {
+                info!("failed to process the {}-th image: {}. continue", idx, e);
+                debug!("cause: {:?}", e);
+                continue;
+            }
+        };
+
+        let mut roi = Mat::roi(&canvas, pos)?;
+        debug!("image copy: src = {:?}, roi = {:?}", im, roi);
+
+        im.copy_to(&mut roi)?;
+    }
+
+    let mut buf = Vector::new();
+    let flags = Vector::new();
+    imgcodecs::imencode(".jpg", &canvas, &mut buf, &flags)?;
+
+    Ok(buf.to_vec())
 }
 
 #[cfg(test)]

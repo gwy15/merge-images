@@ -156,44 +156,9 @@ pub fn merge<T: AsRef<[u8]>>(image_bytes: &[T]) -> Result<Vec<u8>> {
         return Ok(image_bytes[0].as_ref().to_vec());
     }
 
-    // 生成画布
-    let ((width, height), poses) = image_poses(image_bytes.len());
-    debug!("canvas size: {} x {}", width, height);
-    let canvas = Mat::new_rows_cols_with_default(
-        height,
-        width,
-        cv_core::CV_8UC3,
-        cv_core::Scalar::all(255.),
-    )?;
-    debug!("canvas = {:?}", canvas);
-
-    for (idx, (bytes, pos)) in image_bytes.iter().zip(poses).enumerate() {
-        let im = utils::imdecode_wrapped(bytes.as_ref()).map_err(|e| {
-            info!("error imdecode the {}-th bytes (0 based index): {}", idx, e);
-            debug!("{:?}", e);
-            e
-        })?;
-        info!("image size: {:?}", im.size()?);
-
-        debug!("pos = {:?}", pos);
-        let im = match utils::process_image(im, pos.width, pos.height) {
-            Ok(im) => im,
-            Err(e) => {
-                info!("failed to process the {}-th image: {}. continue", idx, e);
-                debug!("cause: {:?}", e);
-                continue;
-            }
-        };
-
-        let mut roi = Mat::roi(&canvas, pos)?;
-        debug!("image copy: src = {:?}, roi = {:?}", im, roi);
-
-        im.copy_to(&mut roi)?;
-    }
-
-    let mut buf = Vector::new();
-    let flags = Vector::new();
-    imgcodecs::imencode(".jpg", &canvas, &mut buf, &flags)?;
-
-    Ok(buf.to_vec())
+    utils::merge_(
+        image_bytes,
+        |image_bytes| Ok(image_poses(image_bytes.len())),
+        true,
+    )
 }

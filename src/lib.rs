@@ -12,7 +12,9 @@ pub(crate) mod prelude {
 
 mod grid;
 mod utils;
+mod waterfall;
 
 pub(crate) const PAD: i32 = 10;
 
 pub use grid::merge;
+pub use waterfall::merge as waterfall;
