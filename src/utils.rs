@@ -1,3 +1,5 @@
+use std::io::Write;
+
 use crate::prelude::*;
 
 /// 把图片处理成 (width, height) 大小
@@ -101,6 +103,31 @@ pub fn imdecode_wrapped(bytes: &[u8]) -> Result<Mat> {
     Ok(im)
 }
 
+fn read_image_or_first_frame(bytes: &[u8]) -> Result<Mat> {
+    match imagesize::image_type(&bytes) {
+        Ok(imagesize::ImageType::Gif) => {
+            // get first frame
+            use tempfile::NamedTempFile;
+            let mut file = NamedTempFile::new()
+                .map_err(|e| Error::new(-1, format!("failed to open tempfile: {}", e)))?;
+
+            file.write_all(bytes).unwrap();
+            file.flush().unwrap();
+            let path = file.path().as_os_str().to_string_lossy();
+            let path = path.as_ref();
+            let mut mat = Mat::default();
+            let mut gif = opencv::videoio::VideoCapture::from_file(path, 0)?;
+            if gif.read(&mut mat)? {
+                info!("read frame from gif success");
+                Ok(mat)
+            } else {
+                Err(Error::new(-2, "read frame from gif failed".to_string()))
+            }
+        }
+        _ => imdecode_wrapped(bytes),
+    }
+}
+
 pub(crate) fn merge_<T: AsRef<[u8]>>(
     image_bytes: &[T],
     gen_poses: impl Fn(&[T]) -> Result<((i32, i32), Vec<Rect>)>,
@@ -126,7 +153,7 @@ pub(crate) fn merge_<T: AsRef<[u8]>>(
     debug!("canvas = {:?}", canvas);
 
     for (idx, (bytes, pos)) in image_bytes.iter().zip(poses).enumerate() {
-        let im = imdecode_wrapped(bytes.as_ref()).map_err(|e| {
+        let im = read_image_or_first_frame(bytes.as_ref()).map_err(|e| {
             info!("error imdecode the {}-th bytes (0 based index): {}", idx, e);
             debug!("{:?}", e);
             e
